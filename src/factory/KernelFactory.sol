@@ -13,7 +13,7 @@ contract KernelFactory {
         implementation = _impl;
     }
 
-    function createAccount(bytes calldata data, bytes32 salt) public payable returns (address) {
+    function createAccount(bytes calldata data, bytes32 salt) public payable virtual returns (address) {
         bytes32 actualSalt = keccak256(abi.encodePacked(data, salt));
         (bool alreadyDeployed, address account) =
             LibClone.createDeterministicERC1967(msg.value, implementation, actualSalt);
