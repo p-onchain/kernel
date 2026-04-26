@@ -13,18 +13,24 @@ import {KernelFactory} from "./KernelFactory.sol";
 ///         Account address depends only on `salt`; `createAccount` requires an EIP-712 signature
 ///         from `deployer` over `(salt, data)` so untrusted callers cannot deploy or front-run
 ///         with substituted init data.
-contract SaltKernelFactory is KernelFactory, Ownable, EIP712 {
+contract SaltKernelFactory is Ownable, EIP712 {
     error NotDeployer();
     error DeployerNotSet();
     error OwnerNotSet();
+    error InitializeError();
 
     bytes32 private constant _CREATE_ACCOUNT_TYPEHASH = keccak256("CreateAccount(bytes32 salt)");
+
+    address public immutable implementation;
 
     address public deployer;
 
     event DeployerChanged(address indexed previousDeployer, address indexed newDeployer);
 
-    constructor(address _impl, address _owner, address _deployer) KernelFactory(_impl) {
+    constructor(address _impl, address _owner, address _deployer){
+        if (_impl == address(0)) revert InitializeError();
+        implementation = _impl;
+
         if (_owner == address(0)) revert OwnerNotSet();
         _initializeOwner(_owner);
 
