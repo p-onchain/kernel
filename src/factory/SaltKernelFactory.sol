@@ -19,7 +19,7 @@ contract SaltKernelFactory is Ownable, EIP712 {
     error OwnerNotSet();
     error InitializeError();
 
-    bytes32 private constant _CREATE_ACCOUNT_TYPEHASH = keccak256("CreateAccount(bytes32 salt)");
+    bytes32 private constant _CREATE_ACCOUNT_TYPEHASH = keccak256("CreateAccount(bytes32 dataHash,bytes32 salt)");
 
     address public immutable implementation;
 
@@ -49,7 +49,7 @@ contract SaltKernelFactory is Ownable, EIP712 {
         payable
         returns (address)
     {
-        bytes32 digest = _hashTypedData(keccak256(abi.encode(_CREATE_ACCOUNT_TYPEHASH, salt)));
+        bytes32 digest = _hashTypedData(keccak256(abi.encode(_CREATE_ACCOUNT_TYPEHASH, keccak256(data), salt)));
         if (ECDSA.tryRecoverCalldata(digest, signature) != deployer) revert NotDeployer();
 
         (bool alreadyDeployed, address account) =

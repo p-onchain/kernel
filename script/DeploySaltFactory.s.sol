@@ -20,7 +20,7 @@ contract DeploySaltFactory is Script {
     uint256 constant STAKE_AMOUNT = 0.00125 ether;
     uint32 constant UNSTAKE_DELAY = 86400; // 1 day
 
-    bytes32 constant _CREATE_ACCOUNT_TYPEHASH = keccak256("CreateAccount(bytes32 salt)");
+    bytes32 constant _CREATE_ACCOUNT_TYPEHASH = keccak256("CreateAccount(bytes32 dataHash,bytes32 salt)");
 
     function run() external {
         // Single key drives broadcaster, staker/factory owner, factory `deployer`,
@@ -74,7 +74,7 @@ contract DeploySaltFactory is Script {
         // ── 4. Smoke-test: deploy one Kernel account through the staker ──
         bytes32 salt = keccak256("salt-factory-smoke-test");
         bytes memory data = _initData(validator, signer);
-        bytes memory sig = _signSalt(factory, signerPk, salt);
+        bytes memory sig = _signSalt(factory, signerPk, salt, data);
 
         address predicted = factory.getAddress(salt);
         console.log("Predicted account :", predicted);
@@ -99,8 +99,12 @@ contract DeploySaltFactory is Script {
         );
     }
 
-    function _signSalt(SaltKernelFactory factory, uint256 signerPk, bytes32 salt) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(abi.encode(_CREATE_ACCOUNT_TYPEHASH, salt));
+    function _signSalt(SaltKernelFactory factory, uint256 signerPk, bytes32 salt, bytes memory data)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(abi.encode(_CREATE_ACCOUNT_TYPEHASH, keccak256(data), salt));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", factory.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPk, digest);
         return abi.encodePacked(r, s, v);

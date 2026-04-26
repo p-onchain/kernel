@@ -47,7 +47,7 @@ MIT
 | Kernel               | 0xBAC849bB641841b44E965fB01A4Bf5F074f84b4D |
 | ECDSA Validator      | 0x845ADb2C711129d4f3966735eD98a9F09fC4cE57 |
 | SaltFactoryStaker¹   | 0x286277542E22E39499d99767d1b6d7C361f93431 |
-| SaltKernelFactory¹   | 0xBB053d8D4ED460eBbcB2d59Bf7a7442c726E3949 |
+| SaltKernelFactory¹   | 0xd22A9909Bb60C908Afb1feae9a823179D9622CEd |
 
 ¹ Currently deployed on Base mainnet only.
 

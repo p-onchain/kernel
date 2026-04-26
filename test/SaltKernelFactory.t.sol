@@ -15,7 +15,7 @@ import {ValidationId} from "../src/types/Types.sol";
 import {Ownable} from "solady/auth/Ownable.sol";
 
 contract SaltKernelFactoryTest is Test {
-    bytes32 private constant _CREATE_ACCOUNT_TYPEHASH = keccak256("CreateAccount(bytes32 salt)");
+    bytes32 private constant _CREATE_ACCOUNT_TYPEHASH = keccak256("CreateAccount(bytes32 dataHash,bytes32 salt)");
 
     IEntryPoint entrypoint;
     Kernel impl;
@@ -47,8 +47,8 @@ contract SaltKernelFactoryTest is Test {
         );
     }
 
-    function _sign(bytes32 salt, uint256 key) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(abi.encode(_CREATE_ACCOUNT_TYPEHASH, salt));
+    function _sign(bytes32 salt, bytes memory data, uint256 key) internal view returns (bytes memory) {
+        bytes32 structHash = keccak256(abi.encode(_CREATE_ACCOUNT_TYPEHASH, keccak256(data), salt));
         bytes32 digest = keccak256(abi.encodePacked("\x19\x01", factory.domainSeparator(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, digest);
         return abi.encodePacked(r, s, v);
@@ -61,7 +61,7 @@ contract SaltKernelFactoryTest is Test {
         (address userA,) = makeAddrAndKey("A");
 
         bytes memory data = _initData(userA);
-        bytes memory sig = _sign(salt, deployerKey);
+        bytes memory sig = _sign(salt, data, deployerKey);
         address deployed = factory.createAccount(data, salt, sig);
         assertEq(deployed, predicted);
     }
@@ -73,8 +73,8 @@ contract SaltKernelFactoryTest is Test {
         bytes32 saltA = bytes32(uint256(1));
         bytes32 saltB = bytes32(uint256(2));
 
-        address a = factory.createAccount(data, saltA, _sign(saltA, deployerKey));
-        address b = factory.createAccount(data, saltB, _sign(saltB, deployerKey));
+        address a = factory.createAccount(data, saltA, _sign(saltA, data, deployerKey));
+        address b = factory.createAccount(data, saltB, _sign(saltB, data, deployerKey));
         assertTrue(a != b);
     }
 
@@ -83,7 +83,7 @@ contract SaltKernelFactoryTest is Test {
         bytes32 salt = bytes32(uint256(0xbeef));
         bytes memory data = _initData(user);
 
-        Kernel kernel = Kernel(payable(factory.createAccount(data, salt, _sign(salt, deployerKey))));
+        Kernel kernel = Kernel(payable(factory.createAccount(data, salt, _sign(salt, data, deployerKey))));
 
         assertEq(
             ValidationId.unwrap(kernel.rootValidator()),
@@ -96,12 +96,13 @@ contract SaltKernelFactoryTest is Test {
         (address userA,) = makeAddrAndKey("A");
         (address userB,) = makeAddrAndKey("B");
         bytes32 salt = bytes32(uint256(0xc0ffee));
-        bytes memory sig = _sign(salt, deployerKey);
+        bytes memory dataA = _initData(userA);
+        bytes memory dataB = _initData(userB);
 
-        address first = factory.createAccount(_initData(userA), salt, sig);
-        // Same signed salt + different init data: deploy is a no-op (already deployed),
-        // returns same address without re-running init.
-        address second = factory.createAccount(_initData(userB), salt, sig);
+        address first = factory.createAccount(dataA, salt, _sign(salt, dataA, deployerKey));
+        // Re-deploy at the same salt with a separate signature for the new data:
+        // proxy is already deployed → no-op, returns the same address.
+        address second = factory.createAccount(dataB, salt, _sign(salt, dataB, deployerKey));
         assertEq(first, second);
     }
 
@@ -125,10 +126,11 @@ contract SaltKernelFactoryTest is Test {
         (, uint256 attackerKey) = makeAddrAndKey("Attacker");
         (address user,) = makeAddrAndKey("User");
         bytes32 salt = bytes32(uint256(8));
-        bytes memory badSig = _sign(salt, attackerKey);
+        bytes memory data = _initData(user);
+        bytes memory badSig = _sign(salt, data, attackerKey);
 
         vm.expectRevert(SaltKernelFactory.NotDeployer.selector);
-        factory.createAccount(_initData(user), salt, badSig);
+        factory.createAccount(data, salt, badSig);
     }
 
     function testOnlyOwnerCanSetDeployer() external {
@@ -149,7 +151,7 @@ contract SaltKernelFactoryTest is Test {
         bytes32 saltA = bytes32(uint256(0xaaaa));
         bytes32 saltB = bytes32(uint256(0xbbbb));
 
-        bytes memory sigForA = _sign(saltA, deployerKey);
+        bytes memory sigForA = _sign(saltA, data, deployerKey);
 
         // valid for saltA
         factory.createAccount(data, saltA, sigForA);
@@ -157,6 +159,22 @@ contract SaltKernelFactoryTest is Test {
         // same sig must NOT authorize a different salt
         vm.expectRevert(SaltKernelFactory.NotDeployer.selector);
         factory.createAccount(data, saltB, sigForA);
+    }
+
+    function testSignatureCannotBeReplayedAcrossData() external {
+        // Mempool front-run scenario: attacker grabs a (sig, salt, data) tx, swaps `data`
+        // for their own init payload, and rebroadcasts. With dataHash bound into the digest,
+        // the substituted call must revert NotDeployer.
+        (address victim,) = makeAddrAndKey("Victim");
+        (address attacker,) = makeAddrAndKey("Attacker");
+        bytes32 salt = bytes32(uint256(0xfeed));
+
+        bytes memory victimData = _initData(victim);
+        bytes memory attackerData = _initData(attacker);
+        bytes memory victimSig = _sign(salt, victimData, deployerKey);
+
+        vm.expectRevert(SaltKernelFactory.NotDeployer.selector);
+        factory.createAccount(attackerData, salt, victimSig);
     }
 
     function testStakerDeployForwardsSignature() external {
@@ -168,7 +186,7 @@ contract SaltKernelFactoryTest is Test {
         (address user,) = makeAddrAndKey("User");
         bytes32 salt = bytes32(uint256(0xd00d));
         bytes memory data = _initData(user);
-        bytes memory sig = _sign(salt, deployerKey);
+        bytes memory sig = _sign(salt, data, deployerKey);
 
         address predicted = factory.getAddress(salt);
         address deployed = staker.deployWithFactory(factory, data, salt, sig);
@@ -182,7 +200,7 @@ contract SaltKernelFactoryTest is Test {
         (address user,) = makeAddrAndKey("User");
         bytes32 salt = bytes32(uint256(0xfeed));
         bytes memory data = _initData(user);
-        bytes memory sig = _sign(salt, deployerKey);
+        bytes memory sig = _sign(salt, data, deployerKey);
 
         vm.expectRevert(SaltFactoryStaker.NotApprovedFactory.selector);
         staker.deployWithFactory(factory, data, salt, sig);
@@ -197,9 +215,10 @@ contract SaltKernelFactoryTest is Test {
         (, uint256 attackerKey) = makeAddrAndKey("Attacker");
         (address user,) = makeAddrAndKey("User");
         bytes32 salt = bytes32(uint256(0xbad));
-        bytes memory badSig = _sign(salt, attackerKey);
+        bytes memory data = _initData(user);
+        bytes memory badSig = _sign(salt, data, attackerKey);
 
         vm.expectRevert(SaltKernelFactory.NotDeployer.selector);
-        staker.deployWithFactory(factory, _initData(user), salt, badSig);
+        staker.deployWithFactory(factory, data, salt, badSig);
     }
 }
